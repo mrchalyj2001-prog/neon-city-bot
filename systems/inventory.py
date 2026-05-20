@@ -57,3 +57,28 @@ def get_stats_from_inventory(user_id):
             defense += ITEMS[item]["defense"]
 
     return attack, defense
+def equip_item(user_id, item_name):
+    items = get_inventory(user_id)
+
+    if item_name not in items:
+        return "❌ У тебя нет этого предмета"
+
+    cursor.execute("""
+        UPDATE users
+        SET equipped = ?
+        WHERE user_id = ?
+    """, (item_name, user_id))
+
+    conn.commit()
+
+    return f"✅ Ты экипировал: {item_name}"
+
+
+def get_equipped(user_id):
+    cursor.execute("SELECT equipped FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+
+    if not row or not row[0]:
+        return None
+
+    return row[0]
