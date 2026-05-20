@@ -6,7 +6,7 @@ from systems.economy import work
 from systems.combat import pve_fight
 from systems.inventory import add_item, get_inventory, equip_item
 
-TOKEN = "PASTE_YOUR_TOKEN_HERE"
+TOKEN = "8848414252:AAEx3uSwOma9V_VSnnxJVECPBarhKNk6Xv4"
 
 bot = telebot.TeleBot(TOKEN)
 
