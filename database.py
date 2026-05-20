@@ -3,15 +3,20 @@ import sqlite3
 conn = sqlite3.connect("game.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# создаём таблицу игроков
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
+
     money INTEGER DEFAULT 0,
     xp INTEGER DEFAULT 0,
     level INTEGER DEFAULT 1,
+
     attack INTEGER DEFAULT 1,
     defense INTEGER DEFAULT 1,
+
+    inventory TEXT DEFAULT "",
+    equipped TEXT DEFAULT "",
+
     last_work REAL DEFAULT 0,
     last_daily REAL DEFAULT 0
 )
@@ -36,6 +41,6 @@ def create_user(user_id):
 
 def update_user(user_id, field, value):
     cursor.execute(f"""
-    UPDATE users SET {field} = ? WHERE user_id = ?
+        UPDATE users SET {field} = ? WHERE user_id = ?
     """, (value, user_id))
     conn.commit()
