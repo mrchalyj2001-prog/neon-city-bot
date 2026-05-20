@@ -1,6 +1,6 @@
 import random
 from database import cursor
-from systems.inventory import get_stats_from_inventory
+from systems.inventory import get_stats_from_inventory, get_equipped
 
 
 def get_user(user_id):
@@ -11,25 +11,43 @@ def get_user(user_id):
 def pve_fight(user_id):
     user = get_user(user_id)
     if not user:
-        return "User not found"
+        return "❌ User not found"
 
     level = user[3]
-    attack_base = user[4]
-    defense_base = user[5]
+    base_attack = user[4]
+    base_defense = user[5]
 
-    # статы от экипировки
-    gear_attack, gear_defense = get_stats_from_inventory(user_id)
+    # инвентарь
+    inv_attack, inv_defense = get_stats_from_inventory(user_id)
 
-    total_attack = attack_base + gear_attack + level
-    total_defense = defense_base + gear_defense + level
+    # экипировка
+    equipped = get_equipped(user_id)
 
-    enemy_power = random.randint(5, 20 + level * 3)
+    equip_attack = 0
+    equip_defense = 0
+
+    if equipped:
+        items = {
+            "knife": {"attack": 5, "defense": 0},
+            "armor": {"attack": 0, "defense": 5},
+            "pistol": {"attack": 10, "defense": 0},
+        }
+
+        if equipped in items:
+            equip_attack = items[equipped]["attack"]
+            equip_defense = items[equipped]["defense"]
+
+    # итоговые статы
+    total_attack = base_attack + inv_attack + equip_attack + level
+    total_defense = base_defense + inv_defense + equip_defense + level
+
+    enemy_power = random.randint(10, 25 + level * 3)
 
     player_power = total_attack + random.randint(0, 10)
     enemy_power_total = enemy_power + random.randint(0, 10)
 
     if player_power >= enemy_power_total:
-        reward = random.randint(50, 150) + level * 10
+        reward = random.randint(60, 160) + level * 10
 
         cursor.execute("""
             UPDATE users
@@ -37,15 +55,15 @@ def pve_fight(user_id):
             WHERE user_id = ?
         """, (reward, user_id))
 
-        return f"🏆 Победа!\n💰 +{reward} монет\n⚔️ враг: {enemy_power_total} vs ты: {player_power}"
+        return f"🏆 ПОБЕДА!\n💰 +{reward} монет\n⚔️ ты: {player_power} vs враг: {enemy_power_total}"
 
     else:
-        penalty = random.randint(10, 40)
+        loss = random.randint(10, 50)
 
         cursor.execute("""
             UPDATE users
             SET money = money - ?
             WHERE user_id = ?
-        """, (penalty, user_id))
+        """, (loss, user_id))
 
-        return f"💀 Поражение!\n- {penalty} монет\n⚔️ враг был сильнее: {enemy_power_total}"
+        return f"💀 ПОРАЖЕНИЕ!\n- {loss} монет\n⚔️ ты: {player_power} vs враг: {enemy_power_total}"
