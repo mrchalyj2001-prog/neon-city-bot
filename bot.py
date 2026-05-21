@@ -1,138 +1,144 @@
-from flask import Flask
-import threading
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is alive"
-
-def run_web():
-    app.run(host="0.0.0.0", port=10000)
-
-threading.Thread(target=run_web).start()
 import telebot
 import time
 import random
 import sqlite3
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
-# ---------------- DB ----------------
+# ================= DB =================
 
 conn = sqlite3.connect("game.db", check_same_thread=False)
-cursor = conn.cursor()
+cur = conn.cursor()
 
-cursor.execute("""
+cur.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     money INTEGER DEFAULT 0,
     xp INTEGER DEFAULT 0,
     level INTEGER DEFAULT 1,
+    career TEXT DEFAULT 'worker',
     attack INTEGER DEFAULT 1,
     defense INTEGER DEFAULT 1,
-    inventory TEXT DEFAULT "",
-    equipped TEXT DEFAULT "",
+    inventory TEXT DEFAULT '',
+    equipped TEXT DEFAULT '',
     last_work REAL DEFAULT 0
 )
 """)
 conn.commit()
 
-# ---------------- BOT ----------------
+# ================= BOT =================
 
-TOKEN = "8848414252:AAEx3uSwOma9V_VSnnxJVECPBarhKNk6Xv4"
+TOKEN = "PASTE_YOUR_TOKEN_HERE"
 bot = telebot.TeleBot(TOKEN)
 
-# ---------------- DATA ----------------
+# ================= GAME DATA =================
 
 ITEMS = {
-    "knife": {"attack": 5, "defense": 0},
-    "armor": {"attack": 0, "defense": 5},
-    "pistol": {"attack": 10, "defense": 0},
+    "knife": {"type": "weapon", "attack": 5, "defense": 0, "rarity": "common"},
+    "armor": {"type": "armor", "attack": 0, "defense": 5, "rarity": "common"},
+    "pistol": {"type": "weapon", "attack": 10, "defense": 0, "rarity": "rare"},
+    "rifle": {"type": "weapon", "attack": 18, "defense": 0, "rarity": "epic"},
 }
 
-# ---------------- HELPERS ----------------
+ENEMIES = ["thug", "bandit", "mutant"]
 
-def get_user(user_id):
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    return cursor.fetchone()
+# ================= HELPERS =================
 
-def create_user(user_id):
-    if not get_user(user_id):
-        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
+def get_user(uid):
+    cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+    return cur.fetchone()
+
+def create_user(uid):
+    if not get_user(uid):
+        cur.execute("INSERT INTO users (user_id) VALUES (?)", (uid,))
         conn.commit()
 
-def get_inventory(user_id):
-    cursor.execute("SELECT inventory FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    return row[0].split(",")[:-1] if row and row[0] else []
-
-def get_equipped(user_id):
-    cursor.execute("SELECT equipped FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    return row[0] if row and row[0] else None
-
-def equip_item(user_id, item):
-    cursor.execute("UPDATE users SET equipped = ? WHERE user_id = ?", (item, user_id))
+def update_user(uid, **kwargs):
+    keys = ", ".join([f"{k}=?" for k in kwargs])
+    values = list(kwargs.values())
+    values.append(uid)
+    cur.execute(f"UPDATE users SET {keys} WHERE user_id=?", values)
     conn.commit()
-    return f"Equipped {item}"
 
-# ---------------- ECONOMY ----------------
+def inv(uid):
+    u = get_user(uid)
+    return u[7].split(",") if u and u[7] else []
 
-def work(user_id):
-    user = get_user(user_id)
-    if not user:
-        return
+def equip(uid, item):
+    update_user(uid, equipped=item)
 
-    if time.time() - user[7] < 10:
-        return "Cooldown"
+def stats(uid):
+    u = get_user(uid)
+    if not u:
+        return 0,0
 
-    money = user[1]
-    xp = user[2]
-    level = user[3]
+    base_a = u[5]
+    base_d = u[6]
 
-    reward = random.randint(20, 80) + level * 5
-    xp += 10
+    items = inv(uid)
+    eq = u[8]
 
-    if xp >= level * 100:
+    bonus_a = sum(ITEMS[i]["attack"] for i in items if i in ITEMS)
+    bonus_d = sum(ITEMS[i]["defense"] for i in items if i in ITEMS)
+
+    if eq in ITEMS:
+        bonus_a += ITEMS[eq]["attack"]
+        bonus_d += ITEMS[eq]["defense"]
+
+    level_bonus = u[3]
+
+    return base_a + bonus_a + level_bonus, base_d + bonus_d + level_bonus
+
+# ================= ECONOMY =================
+
+def work(uid):
+    u = get_user(uid)
+    if time.time() - u[9] < 10:
+        return "⏳ cooldown"
+
+    money = u[1]
+    xp = u[2]
+    lvl = u[3]
+
+    gain = random.randint(20, 60) + lvl * 5
+    xp += 15
+
+    if xp >= lvl * 100:
         xp = 0
-        level += 1
+        lvl += 1
 
-    cursor.execute("""
-        UPDATE users
-        SET money=?, xp=?, level=?, last_work=?
-        WHERE user_id=?
-    """, (money + reward, xp, level, time.time(), user_id))
-    conn.commit()
+    update_user(uid,
+        money=money + gain,
+        xp=xp,
+        level=lvl,
+        last_work=time.time()
+    )
 
-    return f"+{reward} coins | lvl {level}"
+    return f"💼 +{gain}$ | XP +15 | LVL {lvl}"
 
-# ---------------- PVE ----------------
+# ================= PvE =================
 
-def pve(user_id):
-    user = get_user(user_id)
-    if not user:
+def pve(uid):
+    u = get_user(uid)
+    if not u:
         return
 
-    level = user[3]
-    base_attack = user[4]
-    base_defense = user[5]
+    player_a, player_d = stats(uid)
 
-    inv_attack = sum(ITEMS[i]["attack"] for i in get_inventory(user_id) if i in ITEMS)
+    enemy_power = random.randint(10, 25 + u[3] * 3)
 
-    eq = get_equipped(user_id)
-    eq_attack = ITEMS[eq]["attack"] if eq in ITEMS else 0
+    enemy = random.choice(ENEMIES)
 
-    player = base_attack + inv_attack + eq_attack + level
-    enemy = random.randint(10, 30 + level * 3)
-
-    if player > enemy:
+    if player_a > enemy_power:
         reward = random.randint(50, 120)
-        cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (reward, user_id))
-        conn.commit()
-        return f"WIN +{reward}"
-    else:
-        return "LOSE"
+        update_user(uid, money=u[1] + reward)
+        drop = random.choice(list(ITEMS.keys()))
+        update_user(uid, inventory=u[7] + drop + ",")
 
-# ---------------- UI ----------------
+        return f"⚔️ WIN vs {enemy}\n💰 +{reward}$\n🎁 loot: {drop}"
+
+    return f"💀 LOST vs {enemy}"
+
+# ================= UI =================
 
 kb = ReplyKeyboardMarkup(resize_keyboard=True)
 kb.add(KeyboardButton("WORK"))
@@ -140,12 +146,12 @@ kb.add(KeyboardButton("PVE"))
 kb.add(KeyboardButton("INV"))
 kb.add(KeyboardButton("EQUIP"))
 
-# ---------------- HANDLERS ----------------
+# ================= HANDLERS =================
 
 @bot.message_handler(commands=["start"])
 def start(m):
     create_user(m.from_user.id)
-    bot.send_message(m.chat.id, "Game started", reply_markup=kb)
+    bot.send_message(m.chat.id, "🔥 RPG STARTED", reply_markup=kb)
 
 @bot.message_handler(func=lambda m: m.text == "WORK")
 def h1(m):
@@ -157,8 +163,8 @@ def h2(m):
 
 @bot.message_handler(func=lambda m: m.text == "INV")
 def h3(m):
-    items = get_inventory(m.from_user.id)
-    bot.send_message(m.chat.id, str(items))
+    items = inv(m.from_user.id)
+    bot.send_message(m.chat.id, f"🎒 {items}")
 
 @bot.message_handler(func=lambda m: m.text.startswith("EQUIP"))
 def h4(m):
@@ -166,8 +172,9 @@ def h4(m):
     if len(parts) < 2:
         bot.send_message(m.chat.id, "EQUIP knife")
         return
-    bot.send_message(m.chat.id, equip_item(m.from_user.id, parts[1]))
+    equip(m.from_user.id, parts[1])
+    bot.send_message(m.chat.id, f"🧥 equipped {parts[1]}")
 
-# ---------------- RUN ----------------
+# ================= RUN =================
 
 bot.infinity_polling()
