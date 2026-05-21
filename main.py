@@ -1,17 +1,15 @@
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import Message
-from aiogram.filters import CommandStart
+from aiogram import Bot, Dispatcher
 import asyncio
 import os
+
+from app.handlers.start import router as start_router
 
 TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-@dp.message(CommandStart())
-async def start(message: Message):
-    await message.answer("Привет! RPG бот запущен.")
+dp.include_router(start_router)
 
 async def main():
     await dp.start_polling(bot)
